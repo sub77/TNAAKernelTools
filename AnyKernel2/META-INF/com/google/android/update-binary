@@ -12,6 +12,27 @@ ui_print() {
     shift;
   done;
 }
+replace_file() {
+  cp -fp $3 $1;
+  chmod $2 $1;
+}
+
+choose () {
+	ui_print "You now have 30 seconds to press vol+/-";
+	ui_print " ";
+	ui_print "Pressing volume up will set SELinux to permissive.";
+	ui_print "Pressing volume down or not pressing anything will set it to enforcing.";
+	ui_print "Your move.";
+	ui_print " ";
+	/tmp/anykernel/tools/timeout -t 30 /tmp/anykernel/tools/keycheck;
+	if [[ $? -eq 42 ]]; then
+		ui_print "Making permissive image";
+		sed -i 's/is.permissive=0/is.permissive=1/g' /tmp/anykernel/TNAAInstaller.sh
+	else
+		ui_print "Making enforced image";
+	fi
+}
+
 show_progress() { echo "progress $1 $2" > $OUTFD; }
 set_perm_recursive() {
   dirs=$(echo $* | $bb awk '{ print substr($0, index($0,$5)) }');
@@ -46,7 +67,7 @@ mount /data;
 if [ "$(file_getprop /tmp/anykernel/anykernel.sh do.devicecheck)" == 1 ]; then
   ui_print "Checking device...";
   for i in 1 2 3 4 5; do
-    testname="$(file_getprop /tmp/anykernel/anykernel.sh device.name$i)";
+    testname="$(file_getprop /tmp/anykernel/TNAAInstaller.sh device.name$i)";
     if [ "$(getprop ro.product.device)" == "$testname" -o "$(getprop ro.build.product)" == "$testname" ]; then
       ui_print "$testname";
       match=1;
@@ -57,6 +78,9 @@ if [ "$(file_getprop /tmp/anykernel/anykernel.sh do.devicecheck)" == 1 ]; then
     abort "Unsupported device. Aborting...";
   fi;
 fi;
+
+choose;
+/sbin/sh /tmp/anykernel/TNAAInstaller.sh;
 
 if [ "$(file_getprop /tmp/anykernel/anykernel.sh do.initd)" == 1 ]; then
   ui_print "Creating init.d...";
@@ -83,6 +107,7 @@ if [ "$(file_getprop /tmp/anykernel/anykernel.sh do.modules)" == 1 ]; then
   ui_print " ";
   ui_print "Pushing modules...";
   mount -o remount,rw /system;
+  rm -rf /system/lib/modules/*;
   cp -rf /tmp/anykernel/modules/* /system/lib/modules/;
   set_perm_recursive 0 0 0755 0644 /system/lib/modules;
   mount -o remount,ro /system;
@@ -96,4 +121,3 @@ umount /system;
 umount /data;
 ui_print " ";
 ui_print "Done!";
-

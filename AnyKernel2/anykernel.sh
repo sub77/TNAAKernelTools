@@ -3,19 +3,14 @@
 
 ## AnyKernel setup
 # EDIFY properties
-kernel.string=DirtyV by bsmitty83 @ xda-developers
+kernel.string=TNAAKernel by some Devs @ xda-developers
 do.devicecheck=1
-do.initd=1
-do.modules=0
+do.initd=0
+do.modules=1
 do.cleanup=1
-device.name1=maguro
-device.name2=toro
-device.name3=toroplus
-device.name4=
-device.name5=
 
 # shell variables
-block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;
+block=/dev/block/platform/msm_sdcc.1/by-name/boot;
 
 ## end setup
 
@@ -59,6 +54,15 @@ dump_boot() {
 write_boot() {
   cd $split_img;
   cmdline=`cat *-cmdline`;
+
+  if [ "$(file_getprop /tmp/anykernel/TNAAInstaller.sh is.permissive)" == 1 ]; then
+    if [[ cmdline == *"permissive"* ]]; then
+      ui_print "Skipping Permissive Modification, Permissive was already found in the cmdline";
+    else
+      cmdline="$cmdline androidboot.selinux=permissive";
+    fi;
+  fi;
+
   board=`cat *-board`;
   base=`cat *-base`;
   pagesize=`cat *-pagesize`;
@@ -91,8 +95,11 @@ write_boot() {
   $bin/mkbootimg --kernel $kernel --ramdisk /tmp/anykernel/ramdisk-new.cpio.gz $second --cmdline "$cmdline" --board "$board" --base $base --pagesize $pagesize --kernel_offset $kerneloff --ramdisk_offset $ramdiskoff $secondoff --tags_offset $tagsoff $dtb --output /tmp/anykernel/boot-new.img;
   if [ $? != 0 ]; then
     ui_print " "; ui_print "Repacking image failed. Aborting..."; exit 1;
-  elif [ `wc -c < /tmp/anykernel/boot-new.img` -gt `wc -c < /tmp/anykernel/boot.img` ]; then
-    ui_print " "; ui_print "New image larger than boot partition. Aborting..."; exit 1;
+  #Size Check is Broken in MultiROM, so skip it if MultiROM Installation is detected.
+  elif [ ! -e /tmp/mrom_last_updater_script ] || [ "$(cat /tmp/mrom_last_updater_script)" != "$(cat /tmp/anykernel/META-INF/com/google/android/updater-script)" ]; then
+    if [ `wc -c < /tmp/anykernel/boot-new.img` -gt `wc -c < /tmp/anykernel/boot.img` ]; then
+      ui_print " "; ui_print "New image larger than boot partition. Aborting..."; exit 1;
+    fi;
   fi;
   if [ -f "/data/custom_boot_image_patch.sh" ]; then
     ash /data/custom_boot_image_patch.sh /tmp/anykernel/boot-new.img;
@@ -210,44 +217,14 @@ patch_fstab() {
 ## AnyKernel permissions
 # set permissions for included files
 chmod -R 755 $ramdisk
-chmod 644 $ramdisk/sbin/media_profiles.xml
-
 
 ## AnyKernel install
 dump_boot;
 
 # begin ramdisk changes
 
-# init.rc
-backup_file init.rc;
-replace_string init.rc "cpuctl cpu,timer_slack" "mount cgroup none /dev/cpuctl cpu" "mount cgroup none /dev/cpuctl cpu,timer_slack";
-append_file init.rc "run-parts" init;
-
-# init.tuna.rc
-backup_file init.tuna.rc;
-insert_line init.tuna.rc "nodiratime barrier=0" after "mount_all /fstab.tuna" "\tmount ext4 /dev/block/platform/omap/omap_hsmmc.0/by-name/userdata /data remount nosuid nodev noatime nodiratime barrier=0";
-append_file init.tuna.rc "dvbootscript" init.tuna;
-
-# init.superuser.rc
-if [ -f init.superuser.rc ]; then
-  backup_file init.superuser.rc;
-  replace_string init.superuser.rc "Superuser su_daemon" "# su daemon" "\n# Superuser su_daemon";
-  prepend_file init.superuser.rc "SuperSU daemonsu" init.superuser;
-else
-  replace_file init.superuser.rc 750 init.superuser.rc;
-  insert_line init.rc "init.superuser.rc" after "on post-fs-data" "    import /init.superuser.rc";
-fi;
-
-# fstab.tuna
-backup_file fstab.tuna;
-patch_fstab fstab.tuna /system ext4 options "nodiratime,barrier=0" "nodev,noatime,nodiratime,barrier=0,data=writeback,noauto_da_alloc,discard";
-patch_fstab fstab.tuna /cache ext4 options "barrier=0,nomblk_io_submit" "nosuid,nodev,noatime,nodiratime,errors=panic,barrier=0,nomblk_io_submit,data=writeback,noauto_da_alloc";
-patch_fstab fstab.tuna /data ext4 options "nomblk_io_submit,data=writeback" "nosuid,nodev,noatime,errors=panic,nomblk_io_submit,data=writeback,noauto_da_alloc";
-append_file fstab.tuna "usbdisk" fstab;
-
 # end ramdisk changes
 
 write_boot;
 
 ## end install
-
